@@ -1,20 +1,14 @@
 import java.io.File
 import scopt.OParser
 
-case class Config(
-                   foo: Int = -1,
-                   out: File = new File("."),
-                   xyz: Boolean = false,
-                   libName: String = "",
-                   maxCount: Int = -1,
-                   verbose: Boolean = false,
-                   debug: Boolean = false,
-                   mode: String = "",
-                   files: Seq[File] = Seq(),
-                   keepalive: Boolean = false,
-                   jars: Seq[File] = Seq(),
-                   kwargs: Map[String, String] = Map())
+import scala.io.Source
 
+case class Config(
+                   in: File = new File("in.csv"),
+                   subtract: Seq[File] = Seq.empty,
+                   out: File = new File("out.csv"))
+
+case class PartAndColour(part: String, colour: String)
 object CsvSubtracter extends App {
 
 
@@ -22,73 +16,68 @@ object CsvSubtracter extends App {
   val parser1 = {
     import builder._
     OParser.sequence(
-      programName("scopt"),
+      programName("csv-subtracter"),
       head("scopt", "4.x"),
-      opt[Int]('f', "foo")
-        .action((x, c) => c.copy(foo = x))
-        .text("foo is an integer property"),
-      opt[File]('o', "out")
+      opt[File]('s', "subtract")
+        .unbounded()
         .required()
         .valueName("<file>")
+        .action((x, c) => c.copy(subtract = c.subtract :+ x))
+        .text("subtract filename"),
+      opt[File]('o', "out")
+        .optional()
+        .valueName("<file>")
         .action((x, c) => c.copy(out = x))
-        .text("out is a required file property"),
-      opt[(String, Int)]("max")
-        .action({ case ((k, v), c) => c.copy(libName = k, maxCount = v) })
-        .validate(x =>
-          if (x._2 > 0) success
-          else failure("Value <max> must be >0"))
-        .keyValueName("<libname>", "<max>")
-        .text("maximum count for <libname>"),
-      opt[Seq[File]]('j', "jars")
-        .valueName("<jar1>,<jar2>...")
-        .action((x, c) => c.copy(jars = x))
-        .text("jars to include"),
-      opt[Map[String, String]]("kwargs")
-        .valueName("k1=v1,k2=v2...")
-        .action((x, c) => c.copy(kwargs = x))
-        .text("other arguments"),
-      opt[Unit]("verbose")
-        .action((_, c) => c.copy(verbose = true))
-        .text("verbose is a flag"),
-      opt[Unit]("debug")
-        .hidden()
-        .action((_, c) => c.copy(debug = true))
-        .text("this option is hidden in the usage text"),
+        .text("output filename. Defaults to 'out.csv'"),
       help("help").text("prints this usage text"),
       arg[File]("<file>...")
-        .unbounded()
-        .optional()
-        .action((x, c) => c.copy(files = c.files :+ x))
-        .text("optional unbounded args"),
-      note("some notes." + sys.props("line.separator")),
-      cmd("update")
-        .action((_, c) => c.copy(mode = "update"))
-        .text("update is a command.")
-        .children(
-          opt[Unit]("not-keepalive")
-            .abbr("nk")
-            .action((_, c) => c.copy(keepalive = false))
-            .text("disable keepalive"),
-          opt[Boolean]("xyz")
-            .action((x, c) => c.copy(xyz = x))
-            .text("xyz is a boolean property"),
-          opt[Unit]("debug-update")
-            .hidden()
-            .action((_, c) => c.copy(debug = true))
-            .text("this option is hidden in the usage text"),
-          checkConfig(
-            c =>
-              if (c.keepalive && c.xyz) failure("xyz cannot keep alive")
-              else success)
-        )
+        .required()
+        .action((x, c) => c.copy(in = x))
+        .text("input filename"),
+      note("e.g. in.csv -s whatihave.csv -o whatineedtobuy.csv" + sys.props("line.separator")),
     )
   }
 
   // OParser.parse returns Option[Config]
   OParser.parse(parser1, args, Config()) match {
     case Some(config) =>
-    // do something
+      val buildParts = parseCsv(config.in)
+      val partsIHave =  parseCsv(config.subtract.head)
+
+      val whatINeed = buildParts.flatMap { case (partAndColour, quantity) =>
+        val quantityIHave = partsIHave.getOrElse(partAndColour, 0)
+        val newQuantity = quantity - quantityIHave
+        if(newQuantity <= 0 ) {
+          None
+        } else {
+          Some(partAndColour -> newQuantity)
+        }
+      }.toMap
+
+      printToFile(config.out) { p =>
+        whatINeed.foreach { case (partAndColour, quantity) => println(partAndColour.part + "," + partAndColour.colour + "," + quantity)}
+      }
+
     case _ =>
     // arguments are bad, error message will have been displayed
+  }
+
+  private def parseCsv(csv: File) = {
+    val s = Source.fromFile(csv)
+    s.getLines().flatMap(_.toLowerCase.split(",") match {
+      case Array("part", "color", "quantity") => None
+      case Array(part, colour, "0") => None
+      case Array(part, colour, quantity) => Some(PartAndColour(part, colour) -> quantity.toInt)
+    }).toMap
+  }
+
+  def printToFile(out: File)(op: java.io.PrintWriter => Unit) {
+    val p = new java.io.PrintWriter(out)
+    try {
+      p.println("Part,Color,Quantity")
+      op(p)
+    } finally {
+      p.close()
+    }
   }
 }
