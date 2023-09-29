@@ -42,7 +42,7 @@ object CsvSubtracter extends App {
   OParser.parse(parser1, args, Config()) match {
     case Some(config) =>
       val buildParts = parseCsv(config.in)
-      val partsIHave =  parseCsv(config.subtract.head)
+      val partsIHave =  mergeMaps(config.subtract.map(parseCsv))
 
       val whatINeed = buildParts.flatMap { case (partAndColour, quantity) =>
         val quantityIHave = partsIHave.getOrElse(partAndColour, 0)
@@ -55,11 +55,15 @@ object CsvSubtracter extends App {
       }.toMap
 
       printToFile(config.out) { p =>
-        whatINeed.foreach { case (partAndColour, quantity) => println(partAndColour.part + "," + partAndColour.colour + "," + quantity)}
+        whatINeed.foreach { case (partAndColour, quantity) => p.println(partAndColour.part + "," + partAndColour.colour + "," + quantity)}
       }
 
     case _ =>
     // arguments are bad, error message will have been displayed
+  }
+
+  def mergeMaps(maps: Seq[Map[PartAndColour, Int]]) = maps.flatMap(_.toList).groupBy(_._1).map {
+    case (k, value) => k -> value.map(_._2).sum
   }
 
   private def parseCsv(csv: File) = {
