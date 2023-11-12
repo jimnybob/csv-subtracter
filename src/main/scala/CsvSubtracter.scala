@@ -69,9 +69,12 @@ object CsvSubtracter extends App {
   private def parseCsv(csv: File) = {
     val s = Source.fromFile(csv)
     s.getLines().flatMap(_.toLowerCase.split(",") match {
+      case Array("part", "color", "quantity", "is spare") => None
       case Array("part", "color", "quantity") => None
       case Array(part, colour, "0") => None
+      case Array(part, colour, quantity, isSpare) => Some(PartAndColour(part, colour) -> quantity.toInt)
       case Array(part, colour, quantity) => Some(PartAndColour(part, colour) -> quantity.toInt)
+      case unknown => throw new IllegalArgumentException("Unknown row in CSV:" + unknown)
     }).toMap
   }
 
